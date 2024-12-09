@@ -1,0 +1,1022 @@
+---
+title: "Capstone"
+author: "Julia Roskam"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r include=FALSE}
+library(FNN)
+library(glmnet)
+library(randomForest)
+library(ggformula)
+library(dplyr)
+library(caret)
+library(readr)
+library(ggplot2)
+library(stringr)
+library(randomForest)
+library(xgboost)
+library(e1071)
+```
+
+Exploratory data analysis: Created plots to examine trends in data
+```{r, fig.width = 12, fig.height = 6.5, fig.align = "center"}
+
+CO2002 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2002/CO_2002.csv")
+
+#Plotting CO concentration by county
+ggplot(CO2002, aes(x = County, y = Daily.Max.8.hour.CO.Concentration)) +
+  geom_boxplot(fill = "lightblue", outlier.colour = "red") +
+  labs(title = "Boxplot of Daily CO Concentration by County", x = "County", y = "Daily CO Concentration") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+```{r, fig.width = 12, fig.height = 6.5, fig.align = "center"c}
+
+NO22002 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2002/NO2_2002.csv")
+
+#Plotting NO2 concentration by County
+ggplot(NO22002, aes(x = County, y = Daily.Max.1.hour.NO2.Concentration)) +
+  geom_boxplot(fill = "lightblue", outlier.colour = "red") +
+  labs(title = "Daily Max 1 Hour NO2 Concentration by County 2002", x = "County", y = "Daily Max 1 Hour NO2 Concentration (ppb)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+```{r}
+NO22002LosAngeles <- NO22002 %>% filter(County == "Los Angeles")
+
+NO22002LosAngeles$Site.ID <- as.factor(NO22002LosAngeles$Site.ID)
+
+#Plotting NO2 concentration by site in Los Angeles County
+ggplot(NO22002LosAngeles, aes(x = Site.ID, y = Daily.Max.1.hour.NO2.Concentration)) +
+  geom_boxplot(fill = "lightblue", outlier.colour = "red") +
+  labs(title = "Daily Max 1 Hour NO2 Concentration by Site in Los Angeles County 2002", x = "Site ID", y = "Daily Max 1 Hour NO2 Concentration (ppb)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+```{r}
+
+Ozone2002 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2002/Ozone_2002.csv")
+
+Pb2002 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2002/Pb_2002.csv")
+
+PM2.5_2002 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2002/PM2.5_2002.csv")
+
+PM10_2002 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2002/PM10_2002.csv")
+
+SO2_2002 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2002/SO2_2002.csv")
+
+```
+
+Averaging pollutant values across counties for all 2002 data
+```{r}
+
+average_yearly_CO_2002 <- CO2002 %>%
+  group_by(County) %>%
+  summarise(
+    CO.Yearly.Avg.Max.8.hour.Concentration.ppm = mean(Daily.Max.8.hour.CO.Concentration, na.rm = TRUE),
+    CO.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_NO2_2002 <- NO22002 %>%
+  group_by(County) %>%
+  summarise(
+    NO2.Yearly.Avg.Max.1.hour.Concentration.ppb = mean(Daily.Max.1.hour.NO2.Concentration, na.rm = TRUE),
+    NO2.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_Ozone_2002 <- Ozone2002 %>%
+  group_by(County) %>%
+  summarise(
+    Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm = mean(Daily.Max.8.hour.Ozone.Concentration, na.rm = TRUE),
+    Ozone.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_Pb_2002 <- Pb2002 %>%
+  group_by(County) %>%
+  summarise(
+    Pb.Yearly.Avg.Concentration.ug_m3.SC = mean(Daily.Mean.Pb.Concentration, na.rm = TRUE)
+  )
+
+average_yearly_PM2.5_2002 <- PM2.5_2002 %>%
+  group_by(County) %>%
+  summarise(
+    PM2.5.Yearly.Avg.Concentration.ug_ms.LC = mean(Daily.Mean.PM2.5.Concentration, na.rm = TRUE),
+    PM2.5.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_PM10_2002 <- PM10_2002 %>%
+  group_by(County) %>%
+  summarise(
+    PM10.Yearly.Avg.Concentration.ug_ms.SC = mean(Daily.Mean.PM10.Concentration, na.rm = TRUE),
+    PM10.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_SO2_2002 <- SO2_2002 %>%
+  group_by(County) %>%
+  summarise(
+    SO2.Yearly.Avg.Max.1.hour.Concentration.ppb = mean(Daily.Max.1.hour.SO2.Concentration, na.rm = TRUE),
+    SO2.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+```
+
+Introducing bee population data
+```{r}
+
+Bees2002 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Bee Population/California Bee Pop by County 2002.csv")
+
+Bees2002$County <- str_to_title(Bees2002$County)
+
+Bees2002_subset <- Bees2002[, c("County", "Value")]
+
+```
+
+Formatting bee population data
+```{r}
+
+Bees2002_subset$Value <- trimws(Bees2002_subset$Value)
+Bees2002_subset$Value[Bees2002_subset$Value == "(D)"] <- NA
+colnames(Bees2002_subset)[colnames(Bees2002_subset) == "Value"] <- "Bee_Population"
+
+```
+
+Combining data into one dataset for 2002
+```{r}
+
+data_frames_2002 <- list(average_yearly_CO_2002, average_yearly_NO2_2002, average_yearly_Ozone_2002, average_yearly_Pb_2002, average_yearly_PM2.5_2002, average_yearly_PM10_2002, average_yearly_SO2_2002, Bees2002_subset)
+
+average_yearly_values_2002 <- Reduce(function(x, y) merge(x, y, by = "County", all = TRUE), data_frames_2002)
+
+average_yearly_values_2002 <- average_yearly_values_2002 %>%
+  mutate(Year = 2002)
+
+```
+
+
+```{r}
+
+write_csv(average_yearly_values_2002, "C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2002/avg_yearly_air_quality_by_county_2002.csv")
+
+```
+
+Repeating the process for each of the remaining years of data
+```{r}
+
+Bees2007 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Bee Population/California Bee Pop by County 2007.csv")
+
+Bees2007$County <- str_to_title(Bees2007$County)
+
+Bees2007_subset <- Bees2007[, c("County", "Value")]
+
+Bees2007_subset$Value <- trimws(Bees2007_subset$Value)
+Bees2007_subset$Value[Bees2007_subset$Value == "(D)"] <- NA
+colnames(Bees2007_subset)[colnames(Bees2007_subset) == "Value"] <- "Bee_Population"
+
+Bees2012 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Bee Population/California Bee Pop by County 2012.csv")
+
+Bees2012$County <- str_to_title(Bees2012$County)
+
+Bees2012_subset <- Bees2012[, c("County", "Value")]
+
+Bees2012_subset$Value <- trimws(Bees2012_subset$Value)
+Bees2012_subset$Value[Bees2012_subset$Value == "(D)"] <- NA
+colnames(Bees2012_subset)[colnames(Bees2012_subset) == "Value"] <- "Bee_Population"
+
+Bees2017 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Bee Population/California Bee Pop by County 2017.csv")
+
+Bees2017$County <- str_to_title(Bees2017$County)
+
+Bees2017_subset <- Bees2017[, c("County", "Value")]
+
+Bees2017_subset$Value <- trimws(Bees2017_subset$Value)
+Bees2017_subset$Value[Bees2017_subset$Value == "(D)"] <- NA
+colnames(Bees2017_subset)[colnames(Bees2017_subset) == "Value"] <- "Bee_Population"
+
+Bees2022 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Bee Population/California Bee Pop by County 2022.csv")
+
+Bees2022$County <- str_to_title(Bees2022$County)
+
+Bees2022_subset <- Bees2022[, c("County", "Value")]
+
+Bees2022_subset$Value <- trimws(Bees2022_subset$Value)
+Bees2022_subset$Value[Bees2022_subset$Value == "(D)"] <- NA
+colnames(Bees2022_subset)[colnames(Bees2022_subset) == "Value"] <- "Bee_Population"
+
+```
+
+
+```{r}
+
+CO2007 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2007/CO_2007.csv")
+NO22007 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2007/NO2_2007.csv")
+Ozone2007 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2007/Ozone_2007.csv")
+Pb2007 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2007/Pb_2007.csv")
+PM2.5_2007 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2007/PM2.5_2007.csv")
+PM10_2007 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2007/PM10_2007.csv")
+SO2_2007 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2007/SO2_2007.csv")
+
+average_yearly_CO_2007 <- CO2007 %>%
+  group_by(County) %>%
+  summarise(
+    CO.Yearly.Avg.Max.8.hour.Concentration.ppm = mean(Daily.Max.8.hour.CO.Concentration, na.rm = TRUE),
+    CO.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_NO2_2007 <- NO22007 %>%
+  group_by(County) %>%
+  summarise(
+    NO2.Yearly.Avg.Max.1.hour.Concentration.ppb = mean(Daily.Max.1.hour.NO2.Concentration, na.rm = TRUE),
+    NO2.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_Ozone_2007 <- Ozone2007 %>%
+  group_by(County) %>%
+  summarise(
+    Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm = mean(Daily.Max.8.hour.Ozone.Concentration, na.rm = TRUE),
+    Ozone.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_Pb_2007 <- Pb2007 %>%
+  group_by(County) %>%
+  summarise(
+    Pb.Yearly.Avg.Concentration.ug_m3.SC = mean(Daily.Mean.Pb.Concentration, na.rm = TRUE)
+  )
+
+average_yearly_PM2.5_2007 <- PM2.5_2007 %>%
+  group_by(County) %>%
+  summarise(
+    PM2.5.Yearly.Avg.Concentration.ug_ms.LC = mean(Daily.Mean.PM2.5.Concentration, na.rm = TRUE),
+    PM2.5.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_PM10_2007 <- PM10_2007 %>%
+  group_by(County) %>%
+  summarise(
+    PM10.Yearly.Avg.Concentration.ug_ms.SC = mean(Daily.Mean.PM10.Concentration, na.rm = TRUE),
+    PM10.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_SO2_2007 <- SO2_2007 %>%
+  group_by(County) %>%
+  summarise(
+    SO2.Yearly.Avg.Max.1.hour.Concentration.ppb = mean(Daily.Max.1.hour.SO2.Concentration, na.rm = TRUE),
+    SO2.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+```
+
+```{r}
+
+data_frames_2007 <- list(average_yearly_CO_2007, average_yearly_NO2_2007, average_yearly_Ozone_2007, average_yearly_Pb_2007, average_yearly_PM2.5_2007, average_yearly_PM10_2007, average_yearly_SO2_2007, Bees2007_subset)
+
+average_yearly_values_2007 <- Reduce(function(x, y) merge(x, y, by = "County", all = TRUE), data_frames_2007)
+
+average_yearly_values_2007 <- average_yearly_values_2007 %>%
+  mutate(Year = 2007)
+
+
+write_csv(average_yearly_values_2007, "C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2007/avg_yearly_air_quality_by_county_2007.csv")
+
+```
+
+```{r}
+
+CO2012 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2012/CO_2012.csv")
+NO22012 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2012/NO2_2012.csv")
+Ozone2012 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2012/Ozone_2012.csv")
+Pb2012 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2012/Pb_2012.csv")
+PM2.5_2012 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2012/PM2.5_2012.csv")
+PM10_2012 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2012/PM10_2012.csv")
+SO2_2012 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2012/SO2_2012.csv")
+
+average_yearly_CO_2012 <- CO2012 %>%
+  group_by(County) %>%
+  summarise(
+    CO.Yearly.Avg.Max.8.hour.Concentration.ppm = mean(Daily.Max.8.hour.CO.Concentration, na.rm = TRUE),
+    CO.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_NO2_2012 <- NO22012 %>%
+  group_by(County) %>%
+  summarise(
+    NO2.Yearly.Avg.Max.1.hour.Concentration.ppb = mean(Daily.Max.1.hour.NO2.Concentration, na.rm = TRUE),
+    NO2.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_Ozone_2012 <- Ozone2012 %>%
+  group_by(County) %>%
+  summarise(
+    Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm = mean(Daily.Max.8.hour.Ozone.Concentration, na.rm = TRUE),
+    Ozone.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_Pb_2012 <- Pb2012 %>%
+  group_by(County) %>%
+  summarise(
+    Pb.Yearly.Avg.Concentration.ug_m3.SC = mean(Daily.Mean.Pb.Concentration, na.rm = TRUE)
+  )
+
+average_yearly_PM2.5_2012 <- PM2.5_2012 %>%
+  group_by(County) %>%
+  summarise(
+    PM2.5.Yearly.Avg.Concentration.ug_ms.LC = mean(Daily.Mean.PM2.5.Concentration, na.rm = TRUE),
+    PM2.5.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_PM10_2012 <- PM10_2012 %>%
+  group_by(County) %>%
+  summarise(
+    PM10.Yearly.Avg.Concentration.ug_ms.SC = mean(Daily.Mean.PM10.Concentration, na.rm = TRUE),
+    PM10.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_SO2_2012 <- SO2_2012 %>%
+  group_by(County) %>%
+  summarise(
+    SO2.Yearly.Avg.Max.1.hour.Concentration.ppb = mean(Daily.Max.1.hour.SO2.Concentration, na.rm = TRUE),
+    SO2.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+data_frames_2012 <- list(average_yearly_CO_2012, average_yearly_NO2_2012, average_yearly_Ozone_2012, average_yearly_Pb_2012, average_yearly_PM2.5_2012, average_yearly_PM10_2012, average_yearly_SO2_2012, Bees2012_subset)
+
+average_yearly_values_2012 <- Reduce(function(x, y) merge(x, y, by = "County", all = TRUE), data_frames_2012)
+
+average_yearly_values_2012 <- average_yearly_values_2012 %>%
+  mutate(Year = 2012)
+
+
+write_csv(average_yearly_values_2012, "C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2012/avg_yearly_air_quality_by_county_2012.csv")
+
+```
+
+```{r}
+
+CO2017 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2017/CO_2017.csv")
+NO22017 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2017/NO2_2017.csv")
+Ozone2017 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2017/Ozone_2017.csv")
+Pb2017 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2017/Pb_2017.csv")
+PM2.5_2017 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2017/PM2.5_2017.csv")
+PM10_2017 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2017/PM10_2017.csv")
+SO2_2017 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2017/SO2_2017.csv")
+
+average_yearly_CO_2017 <- CO2017 %>%
+  group_by(County) %>%
+  summarise(
+    CO.Yearly.Avg.Max.8.hour.Concentration.ppm = mean(Daily.Max.8.hour.CO.Concentration, na.rm = TRUE),
+    CO.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_NO2_2017 <- NO22017 %>%
+  group_by(County) %>%
+  summarise(
+    NO2.Yearly.Avg.Max.1.hour.Concentration.ppb = mean(Daily.Max.1.hour.NO2.Concentration, na.rm = TRUE),
+    NO2.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_Ozone_2017 <- Ozone2017 %>%
+  group_by(County) %>%
+  summarise(
+    Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm = mean(Daily.Max.8.hour.Ozone.Concentration, na.rm = TRUE),
+    Ozone.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_Pb_2017 <- Pb2017 %>%
+  group_by(County) %>%
+  summarise(
+    Pb.Yearly.Avg.Concentration.ug_m3.SC = mean(Daily.Mean.Pb.Concentration, na.rm = TRUE)
+  )
+
+average_yearly_PM2.5_2017 <- PM2.5_2017 %>%
+  group_by(County) %>%
+  summarise(
+    PM2.5.Yearly.Avg.Concentration.ug_ms.LC = mean(Daily.Mean.PM2.5.Concentration, na.rm = TRUE),
+    PM2.5.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_PM10_2017 <- PM10_2017 %>%
+  group_by(County) %>%
+  summarise(
+    PM10.Yearly.Avg.Concentration.ug_ms.SC = mean(Daily.Mean.PM10.Concentration, na.rm = TRUE),
+    PM10.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_SO2_2017 <- SO2_2017 %>%
+  group_by(County) %>%
+  summarise(
+    SO2.Yearly.Avg.Max.1.hour.Concentration.ppb = mean(Daily.Max.1.hour.SO2.Concentration, na.rm = TRUE),
+    SO2.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+data_frames_2017 <- list(average_yearly_CO_2017, average_yearly_NO2_2017, average_yearly_Ozone_2017, average_yearly_Pb_2017, average_yearly_PM2.5_2017, average_yearly_PM10_2017, average_yearly_SO2_2017, Bees2017_subset)
+
+average_yearly_values_2017 <- Reduce(function(x, y) merge(x, y, by = "County", all = TRUE), data_frames_2017)
+
+average_yearly_values_2017 <- average_yearly_values_2017 %>%
+  mutate(Year = 2017)
+
+
+write_csv(average_yearly_values_2017, "C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2017/avg_yearly_air_quality_by_county_2017.csv")
+
+```
+
+```{r}
+
+CO2022 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2022/CO_2022.csv")
+NO22022 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2022/NO2_2022.csv")
+Ozone2022 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2022/Ozone_2022.csv")
+Pb2022 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2022/Pb_2022.csv")
+PM2.5_2022 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2022/PM2.5_2022.csv")
+PM10_2022 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2022/PM10_2022.csv")
+SO2_2022 <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2022/SO2_2022.csv")
+
+average_yearly_CO_2022 <- CO2022 %>%
+  group_by(County) %>%
+  summarise(
+    CO.Yearly.Avg.Max.8.hour.Concentration.ppm = mean(Daily.Max.8.hour.CO.Concentration, na.rm = TRUE),
+    CO.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_NO2_2022 <- NO22022 %>%
+  group_by(County) %>%
+  summarise(
+    NO2.Yearly.Avg.Max.1.hour.Concentration.ppb = mean(Daily.Max.1.hour.NO2.Concentration, na.rm = TRUE),
+    NO2.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_Ozone_2022 <- Ozone2022 %>%
+  group_by(County) %>%
+  summarise(
+    Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm = mean(Daily.Max.8.hour.Ozone.Concentration, na.rm = TRUE),
+    Ozone.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_Pb_2022 <- Pb2022 %>%
+  group_by(County) %>%
+  summarise(
+    Pb.Yearly.Avg.Concentration.ug_m3.SC = mean(Daily.Mean.Pb.Concentration, na.rm = TRUE)
+  )
+
+average_yearly_PM2.5_2022 <- PM2.5_2022 %>%
+  group_by(County) %>%
+  summarise(
+    PM2.5.Yearly.Avg.Concentration.ug_ms.LC = mean(Daily.Mean.PM2.5.Concentration, na.rm = TRUE),
+    PM2.5.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_PM10_2022 <- PM10_2022 %>%
+  group_by(County) %>%
+  summarise(
+    PM10.Yearly.Avg.Concentration.ug_ms.SC = mean(Daily.Mean.PM10.Concentration, na.rm = TRUE),
+    PM10.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+average_yearly_SO2_2022 <- SO2_2022 %>%
+  group_by(County) %>%
+  summarise(
+    SO2.Yearly.Avg.Max.1.hour.Concentration.ppb = mean(Daily.Max.1.hour.SO2.Concentration, na.rm = TRUE),
+    SO2.Yearly.Avg.AQI.Value = mean(Daily.AQI.Value, na.rm = TRUE)
+  )
+
+data_frames_2022 <- list(average_yearly_CO_2022, average_yearly_NO2_2022, average_yearly_Ozone_2022, average_yearly_Pb_2022, average_yearly_PM2.5_2022, average_yearly_PM10_2022, average_yearly_SO2_2022, Bees2022_subset)
+
+average_yearly_values_2022 <- Reduce(function(x, y) merge(x, y, by = "County", all = TRUE), data_frames_2022)
+
+average_yearly_values_2022 <- average_yearly_values_2022 %>%
+  mutate(Year = 2022)
+
+
+write_csv(average_yearly_values_2022, "C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/2022/avg_yearly_air_quality_by_county_2022.csv")
+
+```
+
+Combining all yearly files into one final dataset
+```{r}
+
+setwd("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/Avg_Yearly")
+
+yearly_files <- list.files(pattern = "*.csv")
+
+data_list <- lapply(yearly_files, read.csv)
+
+combined_yearly_files <- do.call(rbind, data_list)
+
+write.csv(combined_yearly_files, "air_quality_by_county_all_years.csv", row.names = FALSE)
+
+```
+
+Creating population density groups
+```{r}
+
+high_density <- c("Los Angeles", "San Francisco", "San Diego", "Orange", "Alameda", "Sacramento", "San Mateo", "Contra Costa", "Santa Clara", "San Joaquin", "Solano", "Santa Cruz")
+medium_density <- c("Marin", "Ventura", "Stanislaus", "Riverside", "Sonoma", "Placer", "Yolo", "Napa", "Fresno", "Sutter", "Santa Barbara", "Merced", "Monterey", "Butte", "El Dorado", "Kern", "Kings", "San Bernardino", "Nevada", "Tulare", "Yuba")
+low_density <- c("Siskiyou", "Trinity", "Modoc", "Alpine", "Inyo", "Sierra", "Mono", "Lassen", "Plumas", "Mariposa", "Colusa", "Glenn", "Tehama", "Tuolumne", "Mendocino", "Del Norte", "Humboldt", "Imperial", "Calaveras", "Shasta", "San Benito", "Lake", "Amador", "Madera", "San Luis Obispo") 
+
+```
+
+Adding population density column and mapping counties based on density groups
+```{r}
+
+combined_data <- read.csv("C:/Users/jrosk/OneDrive/Documents/MSDS/DS 785/Bees/Air Quality/Avg_Yearly/air_quality_by_county_all_years.csv")
+
+population_density_map <- list( high = high_density, medium = medium_density, low = low_density)
+
+combined_data <- combined_data %>%
+  mutate(Population_Density = case_when(
+    County %in% population_density_map$high ~ "High",
+    County %in% population_density_map$medium ~ "Medium",
+    County %in% population_density_map$low ~ "Low",
+    TRUE ~ NA_character_ 
+  ))
+
+```
+
+Removing Pb and SO2 columns as well as all NA rows
+```{r}
+
+combined_data_test <- combined_data %>%
+  select(-Pb.Yearly.Avg.Concentration.ug_m3.SC, -SO2.Yearly.Avg.Max.1.hour.Concentration.ppb) %>%
+  na.omit()
+
+```
+
+Correlation matrix to check for multicollinearity
+```{r}
+
+cor_matrix_combined_data_test <- cor(combined_data_test[, c("CO.Yearly.Avg.Max.8.hour.Concentration.ppm", "CO.Yearly.Avg.AQI.Value", "NO2.Yearly.Avg.Max.1.hour.Concentration.ppb", "NO2.Yearly.Avg.AQI.Value", "Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm", "Ozone.Yearly.Avg.AQI.Value", "PM2.5.Yearly.Avg.Concentration.ug_ms.LC", "PM2.5.Yearly.Avg.AQI.Value", "PM10.Yearly.Avg.Concentration.ug_ms.SC", "PM10.Yearly.Avg.AQI.Value")])
+print(cor_matrix_combined_data_test)
+
+```
+
+Formatting combined dataset and omitting AQI values due to high multicollinearity
+```{r}
+
+combined_data$Bee_Population <- trimws(combined_data$Bee_Population)
+combined_data$Bee_Population <- gsub(",", "", combined_data$Bee_Population)
+
+combined_data$Bee_Population <- as.numeric(combined_data$Bee_Population)
+
+combined_data_clean <- combined_data %>%
+  select(-Pb.Yearly.Avg.Concentration.ug_m3.SC, -SO2.Yearly.Avg.Max.1.hour.Concentration.ppb, -SO2.Yearly.Avg.AQI.Value, -CO.Yearly.Avg.AQI.Value, -NO2.Yearly.Avg.AQI.Value, -Ozone.Yearly.Avg.AQI.Value, -PM2.5.Yearly.Avg.AQI.Value, -PM10.Yearly.Avg.AQI.Value) %>%
+  na.omit()
+
+```
+
+Exploring options for visualizations
+```{r, fig.width = 12, fig.height = 6.5, fig.align = "center"}
+
+ggplot(combined_data_clean, aes(x = Year, y = Bee_Population, color = Population_Density, group = County)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(title = "Bee Population Over Time by County",
+       x = "Year",
+       y = "Bee Population") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+```
+
+
+Formatted population density column and normalized data with z-scale normalization
+```{r}
+
+combined_data_clean$Population_Density <- as.numeric(factor(combined_data_clean$Population_Density, 
+                                                              levels = c("Low", "Medium", "High")))
+
+combined_data_clean[, c('CO.Yearly.Avg.Max.8.hour.Concentration.ppm', 'NO2.Yearly.Avg.Max.1.hour.Concentration.ppb', 'Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm', 'PM2.5.Yearly.Avg.Concentration.ug_ms.LC', 'PM10.Yearly.Avg.Concentration.ug_ms.SC')] <- scale(combined_data_clean[, c('CO.Yearly.Avg.Max.8.hour.Concentration.ppm', 'NO2.Yearly.Avg.Max.1.hour.Concentration.ppb', 'Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm', 'PM2.5.Yearly.Avg.Concentration.ug_ms.LC', 'PM10.Yearly.Avg.Concentration.ug_ms.SC')])
+
+```
+
+
+Linear Regression model
+```{r}
+
+lm_model_combined_data_clean <- lm(Bee_Population ~ CO.Yearly.Avg.Max.8.hour.Concentration.ppm + NO2.Yearly.Avg.Max.1.hour.Concentration.ppb + Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm + PM2.5.Yearly.Avg.Concentration.ug_ms.LC + PM10.Yearly.Avg.Concentration.ug_ms.SC + Year + Population_Density, data = combined_data_clean)
+
+summary(lm_model_combined_data_clean)
+
+```
+
+```{r}
+
+set.seed(100)
+
+train <- sample(1:nrow(combined_data_clean), size = 0.8 * nrow(combined_data_clean))
+
+train_data <- combined_data_clean[train, ]
+test_data <- combined_data_clean[-train, ]
+
+```
+
+```{r}
+
+lm_train_model <- lm(Bee_Population ~ CO.Yearly.Avg.Max.8.hour.Concentration.ppm + NO2.Yearly.Avg.Max.1.hour.Concentration.ppb + Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm + PM2.5.Yearly.Avg.Concentration.ug_ms.LC + PM10.Yearly.Avg.Concentration.ug_ms.SC + Year + Population_Density, data = train_data)
+
+summary(lm_train_model)
+
+```
+
+
+Linear model performance metrics
+```{r}
+
+predictions <- predict(lm_train_model, newdata = test_data)
+
+actuals <- test_data$Bee_Population
+
+MAE <- mean(abs(predictions - actuals))
+
+RMSE <- sqrt(mean((predictions - actuals)^2))
+
+SS_residual <- sum((actuals - predictions)^2)
+SS_total <- sum((actuals - mean(actuals))^2)
+R2 <- 1 - (SS_residual / SS_total)
+
+# Print performance metrics
+cat("Mean Absolute Error (MAE):", MAE, "\n")
+cat("Root Mean Squared Error (RMSE):", RMSE, "\n")
+cat("R-squared:", R2, "\n")
+
+```
+
+
+Linear model plots
+```{r}
+plot(actuals, predictions, 
+     main = "Actual vs Predicted Bee Population (Linear Regression Model)", 
+     xlab = "Actual Bee Population", 
+     ylab = "Predicted Bee Population", 
+     pch = 19, col = "blue")
+     abline(0, 1, col = "red") 
+```
+
+```{r}
+
+plot(lm_train_model$residuals, 
+     main = "Residuals Plot (Linear Regression Model)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 19, col = "blue")
+     abline(0, 0, col = "red")
+
+```
+
+
+Gradient boosting model using XGBoost
+```{r}
+library(xgboost)
+
+# Train the model on the training data
+xgb_train_data <- xgboost(data = as.matrix(train_data[, c("CO.Yearly.Avg.Max.8.hour.Concentration.ppm", 
+                                                     "NO2.Yearly.Avg.Max.1.hour.Concentration.ppb", 
+                                                     "Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm", 
+                                                     "PM2.5.Yearly.Avg.Concentration.ug_ms.LC", 
+                                                     "PM10.Yearly.Avg.Concentration.ug_ms.SC", "Year", "Population_Density")]), 
+                     label = train_data$Bee_Population, 
+                     nrounds = 100, 
+                     objective = "reg:squarederror")
+
+# Make predictions on the test data
+xgb_test_data <- as.matrix(test_data[, c("CO.Yearly.Avg.Max.8.hour.Concentration.ppm", 
+                                          "NO2.Yearly.Avg.Max.1.hour.Concentration.ppb", 
+                                          "Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm", 
+                                          "PM2.5.Yearly.Avg.Concentration.ug_ms.LC", 
+                                          "PM10.Yearly.Avg.Concentration.ug_ms.SC", "Year", "Population_Density")])
+
+predictions_xgb <- predict(xgb_train_data, xgb_test_data)
+
+actuals_xgb <- test_data$Bee_Population
+
+residuals_xgb <- actuals_xgb - predictions_xgb
+
+MAE_xgb <- mean(abs(predictions_xgb - actuals_xgb))
+
+RMSE_xgb <- sqrt(mean((predictions_xgb - actuals_xgb)^2))
+
+SS_residual_xgb <- sum((actuals_xgb - predictions_xgb)^2)
+SS_total_xgb <- sum((actuals_xgb - mean(actuals_xgb))^2)
+R2_xgb <- 1 - (SS_residual_xgb / SS_total_xgb)
+
+
+# Print performance metrics
+cat("Mean Absolute Error (MAE):", MAE_xgb, "\n")
+cat("Root Mean Squared Error (RMSE):", RMSE_xgb, "\n")
+cat("R-squared:", R2_xgb, "\n")
+
+```
+
+```{r}
+
+plot(actuals_xgb, predictions_xgb, 
+     main = "Actual vs Predicted Bee Population (XGBoost Model)", 
+     xlab = "Actual Bee Population", 
+     ylab = "Predicted Bee Population", 
+     pch = 19, col = "blue")
+     abline(0, 1, col = "red") 
+
+```
+
+```{r}
+
+plot(predictions_xgb, residuals_xgb, 
+     main = "Residuals Plot (XGBoost Model)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 19, col = "blue")
+     abline(0, 0, col = "red")
+
+```
+
+Support Vector Machines model
+```{r}
+
+target <- combined_data_clean$Bee_Population
+variables <- combined_data_clean[, !(names(combined_data_clean) %in% c("Bee_Population", "County"))]
+
+variables_matrix <- as.matrix(variables)
+target_vector <- as.vector(target)
+
+train_variables <- variables_matrix[train, ]
+test_variables <- variables_matrix[-train, ]
+train_target <- target_vector[train]
+test_target <- target_vector[-train]
+```
+
+```{r}
+
+svm_train_data <- svm(train_variables, train_target, type = "eps-regression", kernel = "radial", cost = 1, gamma = 0.1)
+
+```
+
+```{r}
+
+predictions_svm <- predict(svm_train_data, test_variables)
+
+residuals_svm <- test_target - predictions_svm
+
+```
+
+```{r}
+
+MAE_svm <- mean(abs(predictions_svm - test_target))
+
+RMSE_svm <- sqrt(mean((predictions_svm - test_target)^2))
+
+SS_residual_svm <- sum((test_target - predictions_svm)^2)
+SS_total_svm <- sum((test_target - mean(test_target))^2)
+R2_svm <- 1 - (SS_residual_svm / SS_total_svm)
+
+
+# Print performance metrics
+cat("Mean Absolute Error (MAE):", MAE_svm, "\n")
+cat("Root Mean Squared Error (RMSE):", RMSE_svm, "\n")
+cat("R-squared:", R2_svm, "\n")
+
+```
+
+```{r}
+
+plot(test_target, predictions_svm, 
+     main = "Actual vs Predicted Bee Population (SVM Model)", 
+     xlab = "Actual Bee Population", 
+     ylab = "Predicted Bee Population", 
+     pch = 19, col = "blue")
+     abline(0, 1, col = "red") 
+
+```
+
+
+```{r}
+
+plot(predictions_svm, residuals_svm, 
+     main = "Residuals Plot (SVM Model)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 19, col = "blue")
+     abline(0, 0, col = "red")
+
+```
+
+k-Nearest Neighbors model
+```{r}
+
+knn_train_data <- knn.reg(train = train_variables, test = test_variables, y = train_target, k = 5)
+
+predictions_knn <- knn_train_data$pred
+
+```
+
+```{r}
+
+MAE_knn <- mean(abs(predictions_knn - test_target))
+
+RMSE_knn <- sqrt(mean((predictions_knn - test_target)^2))
+
+residuals_knn <- test_target - predictions_knn
+
+SS_residual_knn <- sum((test_target - predictions_knn)^2)
+SS_total_knn <- sum((test_target - mean(test_target))^2)
+R2_knn <- 1 - (SS_residual_knn / SS_total_knn)
+
+
+# Print performance metrics
+cat("Mean Absolute Error (MAE):", MAE_knn, "\n")
+cat("Root Mean Squared Error (RMSE):", RMSE_knn, "\n")
+cat("R-squared:", R2_knn, "\n")
+
+```
+
+```{r}
+
+plot(test_target, predictions_knn, 
+     main = "Actual vs Predicted Bee Population (k-NN Model)", 
+     xlab = "Actual Bee Population", 
+     ylab = "Predicted Bee Population", 
+     pch = 19, col = "blue")
+     abline(0, 1, col = "red") 
+
+```
+
+```{r}
+
+plot(predictions_knn, residuals_knn, 
+     main = "Residuals Plot (k-NN Model)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 19, col = "blue")
+     abline(0, 0, col = "red")
+
+```
+
+Combining predictions versus residuals plots for each model
+```{r, fig.width = 10, fig.height = 6.5, fig.align = "center"}
+
+par(mfrow = c(2, 2))
+
+plot(lm_train_model$residuals, 
+     main = "Linear Regression", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 19, col = "blue")
+     abline(0, 0, col = "red")
+     
+plot(predictions_xgb, residuals_xgb, 
+     main = "XGBoost", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 19, col = "blue")
+     abline(0, 0, col = "red")
+     
+plot(predictions_svm, residuals_svm, 
+     main = "SVM Model", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 19, col = "blue")
+     abline(0, 0, col = "red")
+     
+plot(predictions_knn, residuals_knn, 
+     main = "k-NN", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 19, col = "blue")
+     abline(0, 0, col = "red")
+
+```
+
+Combining predictions versus actual values plots for each model
+```{r, fig.width = 12, fig.height = 6.5, fig.align = "center"}
+
+par(mfrow = c(2, 2))
+
+plot(actuals, predictions, 
+     main = "Linear Regression", 
+     xlab = "Actual Bee Population", 
+     ylab = "Predicted Bee Population", 
+     pch = 19, col = "blue")
+     abline(0, 1, col = "red") 
+     
+plot(actuals_xgb, predictions_xgb, 
+     main = "XGBoost", 
+     xlab = "Actual Bee Population", 
+     ylab = "Predicted Bee Population", 
+     pch = 19, col = "blue")
+     abline(0, 1, col = "red") 
+     
+plot(test_target, predictions_svm, 
+     main = "SVM", 
+     xlab = "Actual Bee Population", 
+     ylab = "Predicted Bee Population", 
+     pch = 19, col = "blue")
+     abline(0, 1, col = "red") 
+     
+plot(test_target, predictions_knn, 
+     main = "k-NN", 
+     xlab = "Actual Bee Population", 
+     ylab = "Predicted Bee Population", 
+     pch = 19, col = "blue")
+     abline(0, 1, col = "red") 
+
+```
+
+Creating a table of performance metrics for each model
+```{r, fig.width = 12, fig.height = 6.5, fig.align = "center"}
+
+library(knitr)
+library(kableExtra)
+
+models <- c("Linear Regression", "XGBoost", "SVM", "k-NN")
+MAE_list <- c(MAE, MAE_xgb, MAE_svm, MAE_knn)
+RMSE_list <- c(RMSE, RMSE_xgb, RMSE_svm, RMSE_knn)
+R2_list <- c(R2, R2_xgb, R2_svm, R2_knn)
+
+model_performance <- data.frame(
+  Model = models,
+  MAE = MAE_list,
+  RMSE = RMSE_list,
+  R_Squared = R2_list
+)
+
+kable(model_performance, 
+      col.names = c("Model", "MAE", "RMSE", "R²"), 
+      format = "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = T,
+                font_size = 20,
+                position = "center")
+
+```
+
+Permutation importance for selected k-NN model
+```{r}
+
+knn_perm_importance <- train(Bee_Population ~ CO.Yearly.Avg.Max.8.hour.Concentration.ppm + NO2.Yearly.Avg.Max.1.hour.Concentration.ppb + Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm + + PM2.5.Yearly.Avg.Concentration.ug_ms.LC + PM10.Yearly.Avg.Concentration.ug_ms.SC + Year + Population_Density, data = train_data, method = "knn", tuneGrid = expand.grid(k = 5))
+
+#permutation importance
+importance <- varImp(knn_perm_importance, scale = FALSE)
+
+# View the results
+print(importance)
+
+```
+
+Bar Graph of k-NN feature importance
+```{r}
+
+importance_df <- as.data.frame(importance$importance)
+importance_df$Feature <- rownames(importance_df)
+
+column_name_mapping <- c("PM10.Yearly.Avg.Concentration.ug_ms.SC" = "PM10",
+                  "Ozone.Yearly.Avg.Max.8.hour.Concentration.ppm" = "Ozone",
+                  "PM2.5.Yearly.Avg.Concentration.ug_ms.LC" = "PM2.5",
+                  "NO2.Yearly.Avg.Max.1.hour.Concentration.ppb" = "NO2",
+                  "CO.Yearly.Avg.Max.8.hour.Concentration.ppm" = "CO",
+                  "Year" = "Year",
+                  "Population_Density" = "Population Density")
+
+# Apply the mapping to the Feature column
+importance_df$Feature <- column_name_mapping[importance_df$Feature]
+
+ggplot(importance_df, aes(x = reorder(Feature, -Overall), y = Overall)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  theme_minimal() +
+  labs(title = "Feature Importance (Permutation Importance)",
+       x = "Features", 
+       y = "Importance") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Final table of feature importance values for k-NN model
+```{r}
+
+importance_df2 <- data.frame(
+  Feature = c("CO", 
+              "NO2",
+              "Ozone", 
+              "PM2.5", 
+              "PM10", 
+              "Year", 
+              "Population_Density"),
+  Overall = c(0.0742570, 0.0758035, 0.3663395, 0.1617660, 0.3733396, 0.0486337, 0.0385079)
+)
+
+kable(importance_df2, 
+      format = "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = T,
+                font_size = 20,
+                position = "center")
+
+```
